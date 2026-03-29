@@ -84,11 +84,20 @@ jobs:
 
       - name: Install uv
         uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: "infrastructure/uv.lock"
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: "24"
+
+      - name: Cache npm packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: ${{ runner.os }}-npm-aws-cdk-2
 
       - name: Install CDK app dependencies
         working-directory: infrastructure
@@ -99,14 +108,20 @@ jobs:
         id: custom-domain
         run: |
           FQDN="api-${AWS_REGION}.${{ vars.HOSTED_ZONE_NAME }}"
+          WILDCARD="*.${{ vars.HOSTED_ZONE_NAME }}"
           CERT_ARN=$(aws acm list-certificates \
             --query "CertificateSummaryList[?DomainName=='${FQDN}'].CertificateArn | [0]" \
             --output text)
+          if [ "$CERT_ARN" = "None" ] || [ -z "$CERT_ARN" ]; then
+            CERT_ARN=$(aws acm list-certificates \
+              --query "CertificateSummaryList[?DomainName=='${WILDCARD}'].CertificateArn | [0]" \
+              --output text)
+          fi
           if [ "$CERT_ARN" != "None" ] && [ -n "$CERT_ARN" ]; then
             echo "cert_arn=${CERT_ARN}" >> "$GITHUB_OUTPUT"
             echo "hosted_zone_name=${{ vars.HOSTED_ZONE_NAME }}" >> "$GITHUB_OUTPUT"
           else
-            echo "::warning::No ACM certificate found for ${FQDN} — skipping custom domain"
+            echo "::warning::No ACM certificate found for ${FQDN} or ${WILDCARD} — skipping custom domain"
           fi
 
       - name: CDK deploy
